@@ -4,20 +4,19 @@ type PasswordResetEmail = {
   userName?: string | null
 }
 
-const DEFAULT_FROM_EMAIL = "Samugaa <noreply@mosh-one.us>"
+const DEFAULT_FROM_EMAIL = "Samugaa <noreply@samugaa.mosh-one.us>"
 
 export function isPasswordResetEmailConfigured() {
   return Boolean(process.env.RESEND_API_KEY)
 }
 
 export function buildPasswordResetUrl(token: string) {
-  const baseUrl =
+  const resetUrl =
     process.env.SAMUGAA_PASSWORD_RESET_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://www.mosh-one.us/"
-  const separator = baseUrl.includes("?") ? "&" : "?"
+    `${trimTrailingSlash(process.env.NEXT_PUBLIC_SITE_URL || "https://mosh-one.us")}/reset-password`
+  const separator = resetUrl.includes("?") ? "&" : "?"
 
-  return `${baseUrl}${separator}token=${encodeURIComponent(token)}`
+  return `${resetUrl}${separator}token=${encodeURIComponent(token)}`
 }
 
 export async function sendPasswordResetEmail({
@@ -75,4 +74,8 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;")
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "")
 }
