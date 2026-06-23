@@ -1,120 +1,13 @@
 "use client"
 
+import Link from "next/link"
 import { useState, useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
-import { Github, Star, GitFork, ExternalLink, Sparkles, Search, Filter } from "lucide-react"
+import { Github, Star, GitFork, ExternalLink, Sparkles, Search, Filter, ArrowRight } from "lucide-react"
 import { Input } from "@/components/ui/input"
-
-const projects = [
-  {
-    id: 0,
-    title: "MTO Samugaa",
-    description:
-      "A bilingual (English & Dhivehi), offline-first desktop suite for Addu City Council's Municipal Technical Office — bundling document generation, task tracking, and staff logging into one fast Electron app.",
-    tags: ["Electron", "JavaScript", "Offline-first", "Dhivehi i18n"],
-    status: "in-progress",
-    year: "2026",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/mosh-samugaa-app",
-    featured: true,
-    highlight: true,
-  },
-  {
-    id: 1,
-    title: "QuantumOne",
-    description:
-      "An Alexa-powered web service that lets you control a Windows PC by voice — shut it down, wake it up, or run quick commands from across the room.",
-    tags: ["JavaScript", "Alexa Skills", "Home Automation"],
-    status: "shipped",
-    year: "2019",
-    stars: 1,
-    forks: 0,
-    url: "https://github.com/MoshRadix/QuantumOne",
-    featured: true,
-  },
-  {
-    id: 2,
-    title: "Hass.io Add-ons",
-    description:
-      "A personal collection of Hass.io / Home Assistant add-ons for extending a self-hosted smart-home setup with extra integrations and utilities.",
-    tags: ["Shell", "Docker", "Home Assistant"],
-    status: "shipped",
-    year: "2019",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/hassio-addons",
-    featured: true,
-  },
-  {
-    id: 3,
-    title: "Codexero DB Plugin",
-    description:
-      "A database plugin written for Fedena, the open-source school management system, built to extend its data layer for a real school deployment.",
-    tags: ["Fedena", "Plugin", "Education"],
-    status: "archived",
-    year: "2012",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/Codexero_DB_Plugin",
-    featured: true,
-  },
-  {
-    id: 4,
-    title: "Snips for Hass.io",
-    description:
-      "A Home Assistant add-on packaging the Snips offline voice assistant for amd64 hardware, for hands-free home automation without sending audio to the cloud.",
-    tags: ["Shell", "Snips", "Voice Assistant"],
-    status: "archived",
-    year: "2019",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/hassio-snips-amd64",
-    featured: false,
-  },
-  {
-    id: 5,
-    title: "cxquotes",
-    description:
-      "A small JavaScript tool for collecting and serving quotes, grown out of the Codexero blog's love of random ideas worth keeping around.",
-    tags: ["JavaScript", "Web"],
-    status: "archived",
-    year: "2021",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/cxquotes",
-    featured: false,
-  },
-  {
-    id: 6,
-    title: "TikTok Live for Dart",
-    description:
-      "A Dart library for tapping into TikTok LIVE's realtime event stream — comments, gifts, and viewer activity — for building live-stream dashboards and bots.",
-    tags: ["Dart", "Realtime", "TikTok API"],
-    status: "archived",
-    year: "2024",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/tiktoklive_dart2",
-    featured: false,
-  },
-  {
-    id: 7,
-    title: "Issue Tracker",
-    description:
-      "A Next.js and TypeScript practice build for tracking issues end-to-end, used to get hands dirty with the App Router and modern React patterns.",
-    tags: ["TypeScript", "Next.js", "Learning"],
-    status: "archived",
-    year: "2024",
-    stars: 0,
-    forks: 0,
-    url: "https://github.com/MoshRadix/issue-tracker",
-    featured: false,
-  },
-]
+import { allProjectTags, projects } from "@/lib/project-data"
 
 const filters = ["all", "shipped", "in-progress", "archived"]
-const allTags = [...new Set(projects.flatMap((p) => p.tags))]
 
 export function ProjectsPageContent() {
   const [activeFilter, setActiveFilter] = useState("all")
@@ -145,7 +38,6 @@ export function ProjectsPageContent() {
   return (
     <section ref={sectionRef} className="px-4 sm:px-6 py-12 sm:py-20">
       <div className="mx-auto max-w-7xl">
-        {/* Hero */}
         <div className={cn("mb-12 sm:mb-16 space-y-4 opacity-0", isVisible && "animate-fade-in-up")}>
           <p className="font-mono text-xs uppercase tracking-[0.25em] sm:tracking-[0.35em] text-primary">Artifacts</p>
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">Open Source Projects</h1>
@@ -155,9 +47,7 @@ export function ProjectsPageContent() {
           </p>
         </div>
 
-        {/* Search and Filters */}
         <div className={cn("mb-10 space-y-6 opacity-0", isVisible && "animate-fade-in-up stagger-2")}>
-          {/* Search */}
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -169,7 +59,6 @@ export function ProjectsPageContent() {
             />
           </div>
 
-          {/* Status Filters */}
           <div className="flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
@@ -187,10 +76,9 @@ export function ProjectsPageContent() {
             ))}
           </div>
 
-          {/* Tag Filters */}
           <div className="flex flex-wrap gap-2">
             <Filter className="h-4 w-4 text-muted-foreground mr-2 self-center" />
-            {allTags.slice(0, 10).map((tag) => (
+            {allProjectTags.slice(0, 10).map((tag) => (
               <button
                 key={tag}
                 onClick={() => toggleTag(tag)}
@@ -207,7 +95,6 @@ export function ProjectsPageContent() {
           </div>
         </div>
 
-        {/* Projects Grid */}
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {filteredProjects.map((project, index) => (
             <article
@@ -216,16 +103,16 @@ export function ProjectsPageContent() {
                 "group relative overflow-hidden rounded-xl border bg-card/40 p-6 sm:p-7 glass transition-all duration-400 active:scale-[0.99] hover-lift opacity-0",
                 isVisible && "animate-fade-in-up",
                 hoveredProject === project.id && "border-primary/40 bg-card/70",
-                "highlight" in project && project.highlight
+                project.highlight
                   ? "sm:col-span-2 lg:col-span-2 border-primary/30 bg-gradient-to-br from-primary/8 via-card/50 to-primary/8"
                   : "border-border/60",
-                project.featured && !("highlight" in project && project.highlight) && "sm:col-span-2 lg:col-span-1",
+                project.featured && !project.highlight && "sm:col-span-2 lg:col-span-1",
               )}
               style={{ animationDelay: `${(index % 6) * 80 + 200}ms` }}
               onMouseEnter={() => setHoveredProject(project.id)}
               onMouseLeave={() => setHoveredProject(null)}
             >
-              {"highlight" in project && project.highlight && (
+              {project.highlight && (
                 <div className="absolute left-5 top-5 flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1.5 animate-pulse-glow">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
                   <span className="font-mono text-[10px] uppercase tracking-wider text-primary font-medium">
@@ -234,12 +121,7 @@ export function ProjectsPageContent() {
                 </div>
               )}
 
-              <div
-                className={cn(
-                  "absolute right-5 top-5 flex items-center gap-2.5",
-                  "highlight" in project && project.highlight && "top-5",
-                )}
-              >
+              <div className="absolute right-5 top-5 flex items-center gap-2.5">
                 <span
                   className={cn(
                     "h-2.5 w-2.5 rounded-full transition-shadow duration-300",
@@ -251,19 +133,14 @@ export function ProjectsPageContent() {
                 <span className="font-mono text-xs text-muted-foreground">{project.status}</span>
               </div>
 
-              <div
-                className={cn(
-                  "mb-5 font-mono text-xs text-muted-foreground",
-                  "highlight" in project && project.highlight && "mt-10",
-                )}
-              >
+              <div className={cn("mb-5 font-mono text-xs text-muted-foreground", project.highlight && "mt-10")}>
                 {project.year}
               </div>
 
               <h3
                 className={cn(
                   "mb-3 font-bold tracking-tight transition-all duration-300 group-hover:text-gradient",
-                  "highlight" in project && project.highlight ? "text-xl sm:text-2xl" : "text-lg sm:text-xl",
+                  project.highlight ? "text-xl sm:text-2xl" : "text-lg sm:text-xl",
                 )}
               >
                 {project.title}
@@ -272,7 +149,7 @@ export function ProjectsPageContent() {
               <p
                 className={cn(
                   "mb-5 text-sm leading-relaxed text-muted-foreground",
-                  "highlight" in project && project.highlight ? "line-clamp-3" : "line-clamp-2",
+                  project.highlight ? "line-clamp-3" : "line-clamp-2",
                 )}
               >
                 {project.description}
@@ -300,7 +177,14 @@ export function ProjectsPageContent() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <Link
+                  href={`/projects/${project.slug}`}
+                  className="flex items-center gap-2 font-mono text-xs text-primary hover:text-foreground transition-all duration-300 group/link"
+                >
+                  <span className="underline-animate">read more</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover/link:translate-x-1" />
+                </Link>
                 <a
                   href={project.url}
                   target="_blank"
