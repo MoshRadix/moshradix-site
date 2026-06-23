@@ -4,7 +4,7 @@ type PasswordResetEmail = {
   userName?: string | null
 }
 
-const DEFAULT_FROM_EMAIL = "Samugaa <noreply@moshradix.dev>"
+const DEFAULT_FROM_EMAIL = "Samugaa <noreply@mosh-one.us>"
 
 export function isPasswordResetEmailConfigured() {
   return Boolean(process.env.RESEND_API_KEY)
@@ -14,7 +14,7 @@ export function buildPasswordResetUrl(token: string) {
   const baseUrl =
     process.env.SAMUGAA_PASSWORD_RESET_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://moshradix.dev"
+    "https://www.mosh-one.us/"
   const separator = baseUrl.includes("?") ? "&" : "?"
 
   return `${baseUrl}${separator}token=${encodeURIComponent(token)}`
