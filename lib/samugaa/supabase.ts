@@ -9,6 +9,7 @@ export const tables = {
   todos: process.env.SAMUGAA_TABLE_TODOS || "Todo",
   subtasks: process.env.SAMUGAA_TABLE_SUBTASKS || "Subtask",
   syncLogs: process.env.SAMUGAA_TABLE_SYNC_LOGS || "SyncLog",
+  passwordResetTokens: process.env.SAMUGAA_TABLE_PASSWORD_RESET_TOKENS || "PasswordResetToken",
 }
 
 export function getSupabase() {
