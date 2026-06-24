@@ -9,6 +9,7 @@ const SyncNoteSchema = z.object({
   clientId: z.string(),
   title: z.string().default("Untitled"),
   content: z.string().default(""),
+  language: z.enum(["en", "dv"]).default("en"),
   isDeleted: z.boolean().default(false),
   clientUpdatedAt: z.string(),
 })
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabase()
   const serverNotes = await supabase
     .from(tables.notes)
-    .select("id,title,content,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId")
+    .select("id,title,content,language,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId")
     .eq("userId", user.userId)
     .gt("updatedAt", sinceDate)
   throwIfSupabaseError(serverNotes.error)
@@ -142,6 +143,7 @@ async function syncNotes(userId: string, deviceId: string, clientNotes: z.infer<
           userId,
           title: clientNote.title,
           content: clientNote.content,
+          language: clientNote.language,
           clientId: clientNote.clientId,
           deviceId,
           isDeleted: clientNote.isDeleted,
@@ -164,6 +166,7 @@ async function syncNotes(userId: string, deviceId: string, clientNotes: z.infer<
         .update({
           title: clientNote.title,
           content: clientNote.content,
+          language: clientNote.language,
           deviceId,
           isDeleted: clientNote.isDeleted,
           deletedAt: clientNote.isDeleted ? timestamp : null,
