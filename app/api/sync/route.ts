@@ -32,10 +32,26 @@ const SyncTodoSchema = z.object({
   subtasks: z.array(SyncSubtaskSchema).default([]),
 })
 
+const SyncWorkLogSchema = z.object({
+  id: z.string().optional(),
+  clientId: z.string(),
+  task: z.string().default(""),
+  notes: z.string().default(""),
+  createdAt: z.string(),
+  tags: z.array(z.string()).default([]),
+  photoPath: z.string().nullable().optional(),
+  linkedTodoId: z.string().nullable().optional(),
+  todoStatusHistory: z.array(z.unknown()).default([]),
+  enrichNote: z.string().nullable().optional(),
+  isDeleted: z.boolean().default(false),
+  clientUpdatedAt: z.string(),
+})
+
 const SyncRequestSchema = z.object({
   since: z.string().optional(),
   notes: z.array(SyncNoteSchema).default([]),
   todos: z.array(SyncTodoSchema).default([]),
+  workLogs: z.array(SyncWorkLogSchema).default([]),
 })
 
 export async function POST(req: NextRequest) {
@@ -49,12 +65,13 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
   const deviceId = req.headers.get("X-Device-ID") ?? `device-${createId()}`
-  const { since, notes: clientNotes, todos: clientTodos } = parsed.data
+  const { since, notes: clientNotes, todos: clientTodos, workLogs: clientWorkLogs } = parsed.data
   const syncedAt = nowIso()
 
-  const [noteResults, todoResults] = await Promise.all([
+  const [noteResults, todoResults, workLogResults] = await Promise.all([
     syncNotes(user.userId, deviceId, clientNotes),
     syncTodos(user.userId, deviceId, clientTodos),
+    syncWorkLogs(user.userId, deviceId, clientWorkLogs),
   ])
 
   const sinceDate = since ? new Date(since).toISOString() : new Date(0).toISOString()
@@ -75,6 +92,13 @@ export async function POST(req: NextRequest) {
 
   const serverTodos = await attachSubtasks(serverTodosResult.data ?? [])
 
+  const serverWorkLogs = await supabase
+    .from(tables.workLogs)
+    .select("*")
+    .eq("userId", user.userId)
+    .gt("updatedAt", sinceDate)
+  throwIfSupabaseError(serverWorkLogs.error)
+
   return jsonResponse({
     syncedAt,
     notes: {
@@ -84,6 +108,10 @@ export async function POST(req: NextRequest) {
     todos: {
       ...todoResults,
       serverChanges: serverTodos,
+    },
+    workLogs: {
+      ...workLogResults,
+      serverChanges: serverWorkLogs.data ?? [],
     },
   })
 }
@@ -221,6 +249,75 @@ async function syncTodos(userId: string, deviceId: string, clientTodos: z.infer<
       updated.push(todo.data.id)
     } else {
       conflicts.push({ clientId: clientTodo.clientId, serverTodo: existing.data })
+    }
+  }
+
+  return { created, updated, conflicts }
+}
+
+async function syncWorkLogs(userId: string, deviceId: string, clientWorkLogs: z.infer<typeof SyncWorkLogSchema>[]) {
+  const created: Array<{ id: string; clientId: string }> = []
+  const updated: Array<{ id: string; clientId: string }> = []
+  const conflicts: Array<{ clientId: string; serverWorkLog: unknown }> = []
+  const supabase = getSupabase()
+
+  for (const clientWorkLog of clientWorkLogs) {
+    const existingQuery = supabase.from(tables.workLogs).select("*").eq("userId", userId)
+    const existing = clientWorkLog.id
+      ? await existingQuery.eq("id", clientWorkLog.id).maybeSingle()
+      : await existingQuery.eq("clientId", clientWorkLog.clientId).maybeSingle()
+    throwIfSupabaseError(existing.error)
+
+    const timestamp = nowIso()
+    const row = {
+      task: clientWorkLog.task,
+      notes: clientWorkLog.notes,
+      createdAt: new Date(clientWorkLog.createdAt).toISOString(),
+      tags: clientWorkLog.tags,
+      photoPath: clientWorkLog.photoPath ?? null,
+      linkedTodoId: clientWorkLog.linkedTodoId ?? null,
+      todoStatusHistory: clientWorkLog.todoStatusHistory,
+      enrichNote: clientWorkLog.enrichNote ?? null,
+      deviceId,
+      isDeleted: clientWorkLog.isDeleted,
+      deletedAt: clientWorkLog.isDeleted ? timestamp : null,
+      updatedAt: timestamp,
+    }
+
+    if (!existing.data) {
+      const workLogId = createId()
+      const workLog = await supabase
+        .from(tables.workLogs)
+        .insert({
+          id: workLogId,
+          userId,
+          ...row,
+          clientId: clientWorkLog.clientId,
+          syncVersion: 1,
+        })
+        .select("id,clientId")
+        .single()
+      throwIfSupabaseError(workLog.error)
+      if (!workLog.data) throw new Error("Work log creation did not return a row")
+      created.push({ id: workLog.data.id, clientId: workLog.data.clientId })
+      continue
+    }
+
+    if (new Date(clientWorkLog.clientUpdatedAt) >= new Date(existing.data.updatedAt)) {
+      const workLog = await supabase
+        .from(tables.workLogs)
+        .update({
+          ...row,
+          syncVersion: (existing.data.syncVersion ?? 1) + 1,
+        })
+        .eq("id", existing.data.id)
+        .select("id,clientId")
+        .single()
+      throwIfSupabaseError(workLog.error)
+      if (!workLog.data) throw new Error("Work log update did not return a row")
+      updated.push({ id: workLog.data.id, clientId: workLog.data.clientId })
+    } else {
+      conflicts.push({ clientId: clientWorkLog.clientId, serverWorkLog: existing.data })
     }
   }
 

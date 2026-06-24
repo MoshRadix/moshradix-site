@@ -7,6 +7,7 @@ export const tables = {
   devices: process.env.SAMUGAA_TABLE_DEVICES || "Device",
   notes: process.env.SAMUGAA_TABLE_NOTES || "Note",
   todos: process.env.SAMUGAA_TABLE_TODOS || "Todo",
+  workLogs: process.env.SAMUGAA_TABLE_WORK_LOGS || "WorkLog",
   subtasks: process.env.SAMUGAA_TABLE_SUBTASKS || "Subtask",
   syncLogs: process.env.SAMUGAA_TABLE_SYNC_LOGS || "SyncLog",
   passwordResetTokens: process.env.SAMUGAA_TABLE_PASSWORD_RESET_TOKENS || "PasswordResetToken",
