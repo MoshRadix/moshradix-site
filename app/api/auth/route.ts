@@ -9,10 +9,17 @@ import {
   sendPasswordResetEmail,
 } from "@/lib/samugaa/password-reset-email"
 import { getSupabase, tables, throwIfSupabaseError } from "@/lib/samugaa/supabase"
+import {
+  buildVerificationUrl,
+  isVerificationEmailConfigured,
+  sendVerificationEmail,
+} from "@/lib/samugaa/verification-email"
 
 const PlatformSchema = z.enum(["ios", "android", "electron", "web"])
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
+const EMAIL_VERIFICATION_TTL_MS = 60 * 60 * 1000
 const PASSWORD_RESET_MESSAGE = "If an account exists for that email, a password reset link has been sent."
+const VERIFICATION_MESSAGE = "Check your email to verify your Samugaa account. The link expires in 1 hour."
 
 const RegisterSchema = z.object({
   email: z.string().email(),
@@ -35,9 +42,17 @@ const RequestPasswordResetSchema = z.object({
   email: z.string().email(),
 })
 
+const ResendVerificationSchema = z.object({
+  email: z.string().email(),
+})
+
 const ResetPasswordSchema = z.object({
   token: z.string().min(32),
   password: z.string().min(8, "Password must be at least 8 characters"),
+})
+
+const VerifyEmailSchema = z.object({
+  token: z.string().min(32),
 })
 
 type SamugaaUser = {
@@ -46,9 +61,18 @@ type SamugaaUser = {
   passwordHash: string
   name: string | null
   createdAt: string
+  emailVerifiedAt: string | null
+  verificationExpiresAt: string | null
 }
 
 type PasswordResetToken = {
+  id: string
+  userId: string
+  expiresAt: string
+  usedAt: string | null
+}
+
+type EmailVerificationToken = {
   id: string
   userId: string
   expiresAt: string
@@ -65,8 +89,15 @@ export async function POST(req: NextRequest) {
     const parsed = RegisterSchema.safeParse(rest)
     if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
+    if (!isVerificationEmailConfigured()) {
+      return jsonResponse({ error: "Email verification is not configured" }, { status: 503 })
+    }
+
     const supabase = getSupabase()
-    const { email, password, name, deviceName, platform } = parsed.data
+    await deleteExpiredUnverifiedUsers(supabase)
+
+    const { password, name, deviceName, platform } = parsed.data
+    const email = parsed.data.email.trim().toLowerCase()
     const existing = await supabase.from(tables.users).select("id").eq("email", email).maybeSingle()
     throwIfSupabaseError(existing.error)
 
@@ -75,6 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     const timestamp = nowIso()
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString()
     const passwordHash = await hashPassword(password)
     const createdUser = await supabase
       .from(tables.users)
@@ -83,6 +115,8 @@ export async function POST(req: NextRequest) {
         email,
         passwordHash,
         name: name ?? null,
+        emailVerifiedAt: null,
+        verificationExpiresAt: expiresAt,
         createdAt: timestamp,
         updatedAt: timestamp,
       })
@@ -109,9 +143,34 @@ export async function POST(req: NextRequest) {
       throw new Error("Device creation did not return a row")
     }
 
+    const verificationToken = createEmailVerificationToken()
+    const createdVerificationToken = await supabase.from(tables.emailVerificationTokens).insert({
+      id: createId(),
+      userId: user.id,
+      tokenHash: hashEmailVerificationToken(verificationToken),
+      expiresAt,
+      usedAt: null,
+      createdAt: timestamp,
+    })
+    throwIfSupabaseError(createdVerificationToken.error)
+
+    try {
+      await sendVerificationEmail({
+        verificationUrl: buildVerificationUrl(verificationToken),
+        to: user.email,
+        userName: user.name,
+      })
+    } catch (error) {
+      const deletedUser = await supabase.from(tables.users).delete().eq("id", user.id)
+      throwIfSupabaseError(deletedUser.error)
+      throw error
+    }
+
     return jsonResponse(
       {
-        token: signToken({ userId: user.id, email: user.email }),
+        success: true,
+        requiresVerification: true,
+        message: VERIFICATION_MESSAGE,
         user,
         deviceId: createdDevice.data.id,
       },
@@ -124,7 +183,10 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
     const supabase = getSupabase()
-    const { email, password, deviceId: incomingDeviceId, deviceName, platform, pushToken } = parsed.data
+    await deleteExpiredUnverifiedUsers(supabase)
+
+    const { password, deviceId: incomingDeviceId, deviceName, platform, pushToken } = parsed.data
+    const email = parsed.data.email.trim().toLowerCase()
     const foundUser = await supabase.from(tables.users).select("*").eq("email", email).maybeSingle()
     throwIfSupabaseError(foundUser.error)
 
@@ -134,6 +196,31 @@ export async function POST(req: NextRequest) {
     }
 
     const timestamp = nowIso()
+    if (!user.emailVerifiedAt && !user.verificationExpiresAt) {
+      const verifiedLegacyUser = await supabase
+        .from(tables.users)
+        .update({ emailVerifiedAt: timestamp, updatedAt: timestamp })
+        .eq("id", user.id)
+      throwIfSupabaseError(verifiedLegacyUser.error)
+      user.emailVerifiedAt = timestamp
+    }
+
+    if (!user.emailVerifiedAt) {
+      if (user.verificationExpiresAt && new Date(user.verificationExpiresAt).getTime() <= Date.now()) {
+        const deletedUser = await supabase.from(tables.users).delete().eq("id", user.id)
+        throwIfSupabaseError(deletedUser.error)
+        return jsonResponse({ error: "Email verification expired. Create a new account to continue." }, { status: 410 })
+      }
+
+      return jsonResponse(
+        {
+          error: "Email verification required. Check your email for the verification link.",
+          requiresVerification: true,
+        },
+        { status: 403 },
+      )
+    }
+
     let deviceId: string | undefined
 
     if (incomingDeviceId) {
@@ -193,12 +280,21 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabase()
+    await deleteExpiredUnverifiedUsers(supabase)
+
     const email = parsed.data.email.trim().toLowerCase()
-    const foundUser = await supabase.from(tables.users).select("id,email,name").eq("email", email).maybeSingle()
+    const foundUser = await supabase
+      .from(tables.users)
+      .select("id,email,name,emailVerifiedAt,verificationExpiresAt")
+      .eq("email", email)
+      .maybeSingle()
     throwIfSupabaseError(foundUser.error)
 
-    const user = foundUser.data as Pick<SamugaaUser, "id" | "email" | "name"> | null
-    if (!user) {
+    const user = foundUser.data as Pick<
+      SamugaaUser,
+      "id" | "email" | "name" | "emailVerifiedAt" | "verificationExpiresAt"
+    > | null
+    if (!user || (!user.emailVerifiedAt && user.verificationExpiresAt)) {
       return jsonResponse({ message: PASSWORD_RESET_MESSAGE })
     }
 
@@ -231,6 +327,140 @@ export async function POST(req: NextRequest) {
     })
 
     return jsonResponse({ message: PASSWORD_RESET_MESSAGE })
+  }
+
+  if (action === "resendVerification") {
+    const parsed = ResendVerificationSchema.safeParse(rest)
+    if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
+
+    if (!isVerificationEmailConfigured()) {
+      return jsonResponse({ error: "Email verification is not configured" }, { status: 503 })
+    }
+
+    const supabase = getSupabase()
+    await deleteExpiredUnverifiedUsers(supabase)
+
+    const timestamp = nowIso()
+    const email = parsed.data.email.trim().toLowerCase()
+    const foundUser = await supabase
+      .from(tables.users)
+      .select("id,email,name,emailVerifiedAt")
+      .eq("email", email)
+      .maybeSingle()
+    throwIfSupabaseError(foundUser.error)
+
+    const user = foundUser.data as Pick<SamugaaUser, "id" | "email" | "name" | "emailVerifiedAt"> | null
+    if (!user) {
+      return jsonResponse({ message: VERIFICATION_MESSAGE })
+    }
+
+    if (user.emailVerifiedAt) {
+      return jsonResponse({ message: "This email is already verified. You can sign in." })
+    }
+
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS).toISOString()
+    const invalidated = await supabase
+      .from(tables.emailVerificationTokens)
+      .update({ usedAt: timestamp })
+      .eq("userId", user.id)
+      .is("usedAt", null)
+    throwIfSupabaseError(invalidated.error)
+
+    const updatedUser = await supabase
+      .from(tables.users)
+      .update({ verificationExpiresAt: expiresAt, updatedAt: timestamp })
+      .eq("id", user.id)
+    throwIfSupabaseError(updatedUser.error)
+
+    const verificationToken = createEmailVerificationToken()
+    const createdVerificationToken = await supabase.from(tables.emailVerificationTokens).insert({
+      id: createId(),
+      userId: user.id,
+      tokenHash: hashEmailVerificationToken(verificationToken),
+      expiresAt,
+      usedAt: null,
+      createdAt: timestamp,
+    })
+    throwIfSupabaseError(createdVerificationToken.error)
+
+    await sendVerificationEmail({
+      verificationUrl: buildVerificationUrl(verificationToken),
+      to: user.email,
+      userName: user.name,
+    })
+
+    return jsonResponse({ message: VERIFICATION_MESSAGE })
+  }
+
+  if (action === "verifyEmail") {
+    const parsed = VerifyEmailSchema.safeParse(rest)
+    if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
+
+    const supabase = getSupabase()
+    await deleteExpiredUnverifiedUsers(supabase)
+
+    const timestamp = nowIso()
+    const tokenHash = hashEmailVerificationToken(parsed.data.token)
+    const foundToken = await supabase
+      .from(tables.emailVerificationTokens)
+      .select("id,userId,expiresAt,usedAt")
+      .eq("tokenHash", tokenHash)
+      .maybeSingle()
+    throwIfSupabaseError(foundToken.error)
+
+    const verificationToken = foundToken.data as EmailVerificationToken | null
+    if (
+      !verificationToken ||
+      verificationToken.usedAt ||
+      new Date(verificationToken.expiresAt).getTime() <= Date.now()
+    ) {
+      if (verificationToken?.userId) {
+        const deletedUser = await supabase
+          .from(tables.users)
+          .delete()
+          .eq("id", verificationToken.userId)
+          .is("emailVerifiedAt", null)
+        throwIfSupabaseError(deletedUser.error)
+      }
+
+      return jsonResponse({ error: "Verification link is invalid or expired" }, { status: 400 })
+    }
+
+    const updatedUser = await supabase
+      .from(tables.users)
+      .update({
+        emailVerifiedAt: timestamp,
+        verificationExpiresAt: null,
+        updatedAt: timestamp,
+      })
+      .eq("id", verificationToken.userId)
+      .is("emailVerifiedAt", null)
+      .select("id,email,name")
+      .maybeSingle()
+    throwIfSupabaseError(updatedUser.error)
+
+    if (!updatedUser.data) {
+      return jsonResponse({ error: "Verification link is invalid or expired" }, { status: 400 })
+    }
+
+    const usedToken = await supabase
+      .from(tables.emailVerificationTokens)
+      .update({ usedAt: timestamp })
+      .eq("id", verificationToken.id)
+    throwIfSupabaseError(usedToken.error)
+
+    const invalidated = await supabase
+      .from(tables.emailVerificationTokens)
+      .update({ usedAt: timestamp })
+      .eq("userId", verificationToken.userId)
+      .is("usedAt", null)
+    throwIfSupabaseError(invalidated.error)
+
+    return jsonResponse({
+      success: true,
+      message: "Email verified. You can now sign in to Samugaa.",
+      user: updatedUser.data,
+    })
   }
 
   if (action === "resetPassword") {
@@ -285,7 +515,10 @@ export async function POST(req: NextRequest) {
   }
 
   return jsonResponse(
-    { error: "Unknown action. Use 'register', 'login', 'requestPasswordReset', or 'resetPassword'." },
+    {
+      error:
+        "Unknown action. Use 'register', 'login', 'verifyEmail', 'resendVerification', 'requestPasswordReset', or 'resetPassword'.",
+    },
     { status: 400 },
   )
 }
@@ -331,4 +564,22 @@ function createPasswordResetToken() {
 
 function hashPasswordResetToken(token: string) {
   return createHash("sha256").update(token).digest("hex")
+}
+
+function createEmailVerificationToken() {
+  return randomBytes(32).toString("base64url")
+}
+
+function hashEmailVerificationToken(token: string) {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+async function deleteExpiredUnverifiedUsers(supabase: ReturnType<typeof getSupabase>) {
+  const deleted = await supabase
+    .from(tables.users)
+    .delete()
+    .is("emailVerifiedAt", null)
+    .lte("verificationExpiresAt", nowIso())
+
+  throwIfSupabaseError(deleted.error)
 }

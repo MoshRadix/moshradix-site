@@ -11,6 +11,7 @@ export const tables = {
   subtasks: process.env.SAMUGAA_TABLE_SUBTASKS || "Subtask",
   syncLogs: process.env.SAMUGAA_TABLE_SYNC_LOGS || "SyncLog",
   passwordResetTokens: process.env.SAMUGAA_TABLE_PASSWORD_RESET_TOKENS || "PasswordResetToken",
+  emailVerificationTokens: process.env.SAMUGAA_TABLE_EMAIL_VERIFICATION_TOKENS || "EmailVerificationToken",
 }
 
 export function getSupabase() {
