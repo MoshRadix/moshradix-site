@@ -170,7 +170,7 @@ const samugaaPrivacy: ProjectPolicySection[] = [
     heading: "Data deletion",
     points: [
       "You may delete notes, todos, and work logs in the app where deletion functionality is available. Deleted items may be marked as deleted to support sync behavior.",
-      "To request deletion of your account or synced server data, contact shaamil.is@gmail.com.",
+      "To request deletion of your account or synced server data, sign in at /samugaa/account-deletion and submit the authenticated request form, or contact shaamil.is@gmail.com if you cannot sign in.",
       "If you run your own backend or modified version of the app, you are responsible for the data stored in your own deployment.",
     ],
   },

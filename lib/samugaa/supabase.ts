@@ -12,6 +12,7 @@ export const tables = {
   syncLogs: process.env.SAMUGAA_TABLE_SYNC_LOGS || "SyncLog",
   passwordResetTokens: process.env.SAMUGAA_TABLE_PASSWORD_RESET_TOKENS || "PasswordResetToken",
   emailVerificationTokens: process.env.SAMUGAA_TABLE_EMAIL_VERIFICATION_TOKENS || "EmailVerificationToken",
+  accountDeletionRequests: process.env.SAMUGAA_TABLE_ACCOUNT_DELETION_REQUESTS || "AccountDeletionRequest",
 }
 
 export function getSupabase() {
