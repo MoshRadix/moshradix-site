@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabase()
   const serverNotes = await supabase
     .from(tables.notes)
-    .select("id,title,content,language,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId")
+    .select("id,title,content,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId")
     .eq("userId", user.userId)
     .gt("updatedAt", sinceDate)
   throwIfSupabaseError(serverNotes.error)
@@ -175,7 +175,6 @@ async function syncNotes(userId: string, deviceId: string | null, clientNotes: z
           userId,
           title: clientNote.title,
           content: clientNote.content,
-          language: clientNote.language,
           clientId: clientNote.clientId,
           deviceId,
           isDeleted: clientNote.isDeleted,
@@ -198,7 +197,6 @@ async function syncNotes(userId: string, deviceId: string | null, clientNotes: z
         .update({
           title: clientNote.title,
           content: clientNote.content,
-          language: clientNote.language,
           deviceId,
           isDeleted: clientNote.isDeleted,
           deletedAt: clientNote.isDeleted ? timestamp : null,
