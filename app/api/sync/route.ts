@@ -56,66 +56,115 @@ const SyncRequestSchema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  const user = getUserFromRequest(req)
-  if (!user) return unauthorizedResponse()
+  try {
+    const user = getUserFromRequest(req)
+    if (!user) return unauthorizedResponse()
 
-  const body = await readJson(req)
-  if (!body) return jsonResponse({ error: "Invalid JSON" }, { status: 400 })
+    const body = await readJson(req)
+    if (!body) return jsonResponse({ error: "Invalid JSON" }, { status: 400 })
 
-  const parsed = SyncRequestSchema.safeParse(body)
-  if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
+    const parsed = SyncRequestSchema.safeParse(body)
+    if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
-  const incomingDeviceId = req.headers.get("X-Device-ID") ?? `device-${createId()}`
-  const deviceId = await ensureSyncDevice(user.userId, incomingDeviceId)
-  const { since, notes: clientNotes, todos: clientTodos, workLogs: clientWorkLogs } = parsed.data
-  const syncedAt = nowIso()
+    const incomingDeviceId = req.headers.get("X-Device-ID") ?? `device-${createId()}`
+    const deviceId = await ensureSyncDevice(user.userId, incomingDeviceId)
+    const { since, notes: clientNotes, todos: clientTodos, workLogs: clientWorkLogs } = parsed.data
+    const syncedAt = nowIso()
 
-  const [noteResults, todoResults, workLogResults] = await Promise.all([
-    syncNotes(user.userId, deviceId, clientNotes),
-    syncTodos(user.userId, deviceId, clientTodos),
-    syncWorkLogsOptional(user.userId, deviceId, clientWorkLogs),
-  ])
+    const [noteResults, todoResults, workLogResults] = await Promise.all([
+      syncNotes(user.userId, deviceId, clientNotes),
+      syncTodos(user.userId, deviceId, clientTodos),
+      syncWorkLogsOptional(user.userId, deviceId, clientWorkLogs),
+    ])
 
-  const sinceDate = since ? new Date(since).toISOString() : new Date(0).toISOString()
-  const supabase = getSupabase()
-  const serverNotes = await supabase
-    .from(tables.notes)
-    .select("id,title,content,language,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId")
-    .eq("userId", user.userId)
-    .gt("updatedAt", sinceDate)
-  throwIfSupabaseError(serverNotes.error)
+    const sinceDate = toSafeIso(since, new Date(0).toISOString())
+    const supabase = getSupabase()
+    const serverNotes = await getServerNotes(user.userId, sinceDate)
 
-  const serverTodosResult = await supabase
-    .from(tables.todos)
-    .select("*")
-    .eq("userId", user.userId)
-    .gt("updatedAt", sinceDate)
-  throwIfSupabaseError(serverTodosResult.error)
+    const serverTodosResult = await supabase
+      .from(tables.todos)
+      .select("*")
+      .eq("userId", user.userId)
+      .gt("updatedAt", sinceDate)
+    throwIfSupabaseError(serverTodosResult.error)
 
-  const serverTodos = await attachSubtasks(serverTodosResult.data ?? [])
+    const serverTodos = await attachSubtasks(serverTodosResult.data ?? [])
 
-  const serverWorkLogs = await getServerWorkLogsOptional(user.userId, sinceDate)
+    const serverWorkLogs = await getServerWorkLogsOptional(user.userId, sinceDate)
 
-  return jsonResponse({
-    syncedAt,
-    notes: {
-      ...noteResults,
-      serverChanges: serverNotes.data ?? [],
-    },
-    todos: {
-      ...todoResults,
-      serverChanges: serverTodos,
-    },
-    workLogs: {
-      ...workLogResults,
-      serverChanges: serverWorkLogs.serverChanges,
-      error: workLogResults.error ?? serverWorkLogs.error,
-    },
-  })
+    return jsonResponse({
+      syncedAt,
+      notes: {
+        ...noteResults,
+        serverChanges: serverNotes,
+      },
+      todos: {
+        ...todoResults,
+        serverChanges: serverTodos,
+      },
+      workLogs: {
+        ...workLogResults,
+        serverChanges: serverWorkLogs.serverChanges,
+        error: workLogResults.error ?? serverWorkLogs.error,
+      },
+    })
+  } catch (error) {
+    console.error("[Sync] Request failed:", error)
+    return jsonResponse(
+      { error: `Sync failed: ${formatSyncError(error)}` },
+      { status: 500 },
+    )
+  }
 }
 
 export function OPTIONS() {
   return optionsResponse()
+}
+
+function toSafeIso(value: string | undefined, fallback: string) {
+  if (!value) return fallback
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? fallback : date.toISOString()
+}
+
+function formatSyncError(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === "object" && error && "message" in error) {
+    return String((error as { message?: unknown }).message)
+  }
+  return "Unexpected server error"
+}
+
+function isMissingColumnError(error: unknown, column: string) {
+  const message = formatSyncError(error).toLowerCase()
+  return message.includes(column.toLowerCase()) && (
+    message.includes("column") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
+  )
+}
+
+async function getServerNotes(userId: string, sinceDate: string) {
+  const supabase = getSupabase()
+  const selectWithLanguage = "id,title,content,language,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId"
+  const selectLegacy = "id,title,content,clientId,isDeleted,deletedAt,createdAt,updatedAt,syncVersion,deviceId"
+
+  const fetchNotes = (select: string) => supabase
+    .from(tables.notes)
+    .select(select)
+    .eq("userId", userId)
+    .gt("updatedAt", sinceDate)
+
+  const notes = await fetchNotes(selectWithLanguage)
+  if (!notes.error) return notes.data ?? []
+  if (!isMissingColumnError(notes.error, "language")) throwIfSupabaseError(notes.error)
+
+  const legacyNotes = await fetchNotes(selectLegacy)
+  throwIfSupabaseError(legacyNotes.error)
+  return (legacyNotes.data ?? []).map((note) => ({
+    ...(typeof note === "object" && note ? note : {}),
+    language: "en",
+  }))
 }
 
 async function ensureSyncDevice(userId: string, deviceId: string) {
@@ -164,55 +213,112 @@ async function syncNotes(userId: string, deviceId: string | null, clientNotes: z
 
     const timestamp = nowIso()
     if (!existing.data) {
-      const note = await supabase
-        .from(tables.notes)
-        .insert({
-          id: createId(),
-          userId,
-          title: clientNote.title,
-          content: clientNote.content,
-          language: clientNote.language,
-          clientId: clientNote.clientId,
-          deviceId,
-          isDeleted: clientNote.isDeleted,
-          deletedAt: clientNote.isDeleted ? timestamp : null,
-          syncVersion: 1,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })
-        .select("id")
-        .single()
-      throwIfSupabaseError(note.error)
-      if (!note.data) throw new Error("Note creation did not return a row")
-      created.push(note.data.id)
+      const note = await insertNoteWithLanguageFallback({
+        id: createId(),
+        userId,
+        title: clientNote.title,
+        content: clientNote.content,
+        language: clientNote.language,
+        clientId: clientNote.clientId,
+        deviceId,
+        isDeleted: clientNote.isDeleted,
+        deletedAt: clientNote.isDeleted ? timestamp : null,
+        syncVersion: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
+      created.push(note.id)
       continue
     }
 
     if (new Date(clientNote.clientUpdatedAt) >= new Date(existing.data.updatedAt)) {
-      const note = await supabase
-        .from(tables.notes)
-        .update({
-          title: clientNote.title,
-          content: clientNote.content,
-          language: clientNote.language,
-          deviceId,
-          isDeleted: clientNote.isDeleted,
-          deletedAt: clientNote.isDeleted ? timestamp : null,
-          updatedAt: timestamp,
-          syncVersion: (existing.data.syncVersion ?? 1) + 1,
-        })
-        .eq("id", existing.data.id)
-        .select("id")
-        .single()
-      throwIfSupabaseError(note.error)
-      if (!note.data) throw new Error("Note update did not return a row")
-      updated.push(note.data.id)
+      const note = await updateNoteWithLanguageFallback(existing.data.id, {
+        title: clientNote.title,
+        content: clientNote.content,
+        language: clientNote.language,
+        deviceId,
+        isDeleted: clientNote.isDeleted,
+        deletedAt: clientNote.isDeleted ? timestamp : null,
+        updatedAt: timestamp,
+        syncVersion: (existing.data.syncVersion ?? 1) + 1,
+      })
+      updated.push(note.id)
     } else {
       conflicts.push({ clientId: clientNote.clientId, serverNote: existing.data })
     }
   }
 
   return { created, updated, conflicts }
+}
+
+async function insertNoteWithLanguageFallback(row: {
+  id: string
+  userId: string
+  title: string
+  content: string
+  language: "en" | "dv"
+  clientId: string
+  deviceId: string | null
+  isDeleted: boolean
+  deletedAt: string | null
+  syncVersion: number
+  createdAt: string
+  updatedAt: string
+}) {
+  const note = await getSupabase()
+    .from(tables.notes)
+    .insert(row)
+    .select("id")
+    .single()
+  if (!note.error) {
+    if (!note.data) throw new Error("Note creation did not return a row")
+    return note.data
+  }
+  if (!isMissingColumnError(note.error, "language")) throwIfSupabaseError(note.error)
+
+  const { language: _language, ...legacyRow } = row
+  const legacyNote = await getSupabase()
+    .from(tables.notes)
+    .insert(legacyRow)
+    .select("id")
+    .single()
+  throwIfSupabaseError(legacyNote.error)
+  if (!legacyNote.data) throw new Error("Note creation did not return a row")
+  return legacyNote.data
+}
+
+async function updateNoteWithLanguageFallback(id: string, row: {
+  title: string
+  content: string
+  language: "en" | "dv"
+  deviceId: string | null
+  isDeleted: boolean
+  deletedAt: string | null
+  updatedAt: string
+  syncVersion: number
+}) {
+  const note = await getSupabase()
+    .from(tables.notes)
+    .update(row)
+    .eq("id", id)
+    .select("id")
+    .single()
+  if (!note.error) {
+    if (!note.data) throw new Error("Note update did not return a row")
+    return note.data
+  }
+  if (!isMissingColumnError(note.error, "language")) throwIfSupabaseError(note.error)
+
+  const { language: _language, ...legacyRow } = row
+  const legacyNote = await getSupabase()
+    .from(tables.notes)
+    .update(legacyRow)
+    .eq("id", id)
+    .select("id")
+    .single()
+  throwIfSupabaseError(legacyNote.error)
+  if (!legacyNote.data) throw new Error("Note update did not return a row")
+  return legacyNote.data
 }
 
 async function syncTodos(userId: string, deviceId: string | null, clientTodos: z.infer<typeof SyncTodoSchema>[]) {
