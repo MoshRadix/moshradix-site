@@ -65,7 +65,8 @@ export async function POST(req: NextRequest) {
   const parsed = SyncRequestSchema.safeParse(body)
   if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
-  const deviceId = req.headers.get("X-Device-ID") ?? `device-${createId()}`
+  const incomingDeviceId = req.headers.get("X-Device-ID") ?? `device-${createId()}`
+  const deviceId = await ensureSyncDevice(user.userId, incomingDeviceId)
   const { since, notes: clientNotes, todos: clientTodos, workLogs: clientWorkLogs } = parsed.data
   const syncedAt = nowIso()
 
@@ -121,7 +122,38 @@ export function OPTIONS() {
   return optionsResponse()
 }
 
-async function syncNotes(userId: string, deviceId: string, clientNotes: z.infer<typeof SyncNoteSchema>[]) {
+async function ensureSyncDevice(userId: string, deviceId: string) {
+  const supabase = getSupabase()
+  const timestamp = nowIso()
+  const existing = await supabase.from(tables.devices).select("id,userId").eq("id", deviceId).maybeSingle()
+  throwIfSupabaseError(existing.error)
+
+  if (existing.data) {
+    if (existing.data.userId !== userId) return null
+
+    const updated = await supabase
+      .from(tables.devices)
+      .update({ lastSeenAt: timestamp, updatedAt: timestamp })
+      .eq("id", deviceId)
+      .eq("userId", userId)
+    throwIfSupabaseError(updated.error)
+    return deviceId
+  }
+
+  const created = await supabase.from(tables.devices).insert({
+    id: deviceId,
+    userId,
+    name: "Android",
+    platform: "android",
+    lastSeenAt: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  throwIfSupabaseError(created.error)
+  return deviceId
+}
+
+async function syncNotes(userId: string, deviceId: string | null, clientNotes: z.infer<typeof SyncNoteSchema>[]) {
   const created: string[] = []
   const updated: string[] = []
   const conflicts: Array<{ clientId: string; serverNote: unknown }> = []
@@ -187,7 +219,7 @@ async function syncNotes(userId: string, deviceId: string, clientNotes: z.infer<
   return { created, updated, conflicts }
 }
 
-async function syncTodos(userId: string, deviceId: string, clientTodos: z.infer<typeof SyncTodoSchema>[]) {
+async function syncTodos(userId: string, deviceId: string | null, clientTodos: z.infer<typeof SyncTodoSchema>[]) {
   const created: string[] = []
   const updated: string[] = []
   const conflicts: Array<{ clientId: string; serverTodo: unknown }> = []
@@ -258,7 +290,7 @@ async function syncTodos(userId: string, deviceId: string, clientTodos: z.infer<
   return { created, updated, conflicts }
 }
 
-async function syncWorkLogs(userId: string, deviceId: string, clientWorkLogs: z.infer<typeof SyncWorkLogSchema>[]) {
+async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkLogs: z.infer<typeof SyncWorkLogSchema>[]) {
   const created: Array<{ id: string; clientId: string }> = []
   const updated: Array<{ id: string; clientId: string }> = []
   const conflicts: Array<{ clientId: string; serverWorkLog: unknown }> = []

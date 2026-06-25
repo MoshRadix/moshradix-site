@@ -14,6 +14,7 @@ import {
   isVerificationEmailConfigured,
   sendVerificationEmail,
 } from "@/lib/samugaa/verification-email"
+import { deleteExpiredUnverifiedUsers } from "@/lib/samugaa/email-verification-cleanup"
 
 const PlatformSchema = z.enum(["ios", "android", "electron", "web"])
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
@@ -25,6 +26,7 @@ const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().optional(),
+  deviceId: z.string().optional(),
   deviceName: z.string().default("Unknown Device"),
   platform: PlatformSchema.default("web"),
 })
@@ -96,7 +98,7 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabase()
     await deleteExpiredUnverifiedUsers(supabase)
 
-    const { password, name, deviceName, platform } = parsed.data
+    const { password, name, deviceId: incomingDeviceId, deviceName, platform } = parsed.data
     const email = parsed.data.email.trim().toLowerCase()
     const existing = await supabase.from(tables.users).select("id").eq("email", email).maybeSingle()
     throwIfSupabaseError(existing.error)
@@ -128,7 +130,7 @@ export async function POST(req: NextRequest) {
     const createdDevice = await supabase
       .from(tables.devices)
       .insert({
-        id: createId(),
+        id: incomingDeviceId ?? createId(),
         userId: user.id,
         name: deviceName,
         platform,
@@ -246,7 +248,7 @@ export async function POST(req: NextRequest) {
       const createdDevice = await supabase
         .from(tables.devices)
         .insert({
-          id: createId(),
+          id: incomingDeviceId ?? createId(),
           userId: user.id,
           name: deviceName,
           platform: platform ?? "web",
@@ -572,14 +574,4 @@ function createEmailVerificationToken() {
 
 function hashEmailVerificationToken(token: string) {
   return createHash("sha256").update(token).digest("hex")
-}
-
-async function deleteExpiredUnverifiedUsers(supabase: ReturnType<typeof getSupabase>) {
-  const deleted = await supabase
-    .from(tables.users)
-    .delete()
-    .is("emailVerifiedAt", null)
-    .lte("verificationExpiresAt", nowIso())
-
-  throwIfSupabaseError(deleted.error)
 }
