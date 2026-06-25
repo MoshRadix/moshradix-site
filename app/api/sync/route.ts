@@ -202,13 +202,8 @@ async function syncNotes(userId: string, deviceId: string | null, clientNotes: z
   const created: string[] = []
   const updated: string[] = []
   const conflicts: Array<{ clientId: string; serverNote: unknown }> = []
-  const supabase = getSupabase()
-
   for (const clientNote of clientNotes) {
-    const existingQuery = supabase.from(tables.notes).select("*").eq("userId", userId)
-    const existing = clientNote.id
-      ? await existingQuery.eq("id", clientNote.id).maybeSingle()
-      : await existingQuery.eq("clientId", clientNote.clientId).maybeSingle()
+    const existing = await findExistingByRemoteOrClientId(tables.notes, userId, clientNote.id, clientNote.clientId)
     throwIfSupabaseError(existing.error)
 
     const timestamp = nowIso()
@@ -325,19 +320,14 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
   const created: string[] = []
   const updated: string[] = []
   const conflicts: Array<{ clientId: string; serverTodo: unknown }> = []
-  const supabase = getSupabase()
-
   for (const clientTodo of clientTodos) {
-    const existingQuery = supabase.from(tables.todos).select("*").eq("userId", userId)
-    const existing = clientTodo.id
-      ? await existingQuery.eq("id", clientTodo.id).maybeSingle()
-      : await existingQuery.eq("clientId", clientTodo.clientId).maybeSingle()
+    const existing = await findExistingByRemoteOrClientId(tables.todos, userId, clientTodo.id, clientTodo.clientId)
     throwIfSupabaseError(existing.error)
 
     const timestamp = nowIso()
     if (!existing.data) {
       const todoId = createId()
-      const todo = await supabase
+      const todo = await getSupabase()
         .from(tables.todos)
         .insert({
           id: todoId,
@@ -364,7 +354,7 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
     }
 
     if (new Date(clientTodo.clientUpdatedAt) >= new Date(existing.data.updatedAt)) {
-      const todo = await supabase
+      const todo = await getSupabase()
         .from(tables.todos)
         .update({
           text: clientTodo.text,
@@ -396,13 +386,8 @@ async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkL
   const created: Array<{ id: string; clientId: string }> = []
   const updated: Array<{ id: string; clientId: string }> = []
   const conflicts: Array<{ clientId: string; serverWorkLog: unknown }> = []
-  const supabase = getSupabase()
-
   for (const clientWorkLog of clientWorkLogs) {
-    const existingQuery = supabase.from(tables.workLogs).select("*").eq("userId", userId)
-    const existing = clientWorkLog.id
-      ? await existingQuery.eq("id", clientWorkLog.id).maybeSingle()
-      : await existingQuery.eq("clientId", clientWorkLog.clientId).maybeSingle()
+    const existing = await findExistingByRemoteOrClientId(tables.workLogs, userId, clientWorkLog.id, clientWorkLog.clientId)
     throwIfSupabaseError(existing.error)
 
     const timestamp = nowIso()
@@ -423,7 +408,7 @@ async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkL
 
     if (!existing.data) {
       const workLogId = createId()
-      const workLog = await supabase
+      const workLog = await getSupabase()
         .from(tables.workLogs)
         .insert({
           id: workLogId,
@@ -441,7 +426,7 @@ async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkL
     }
 
     if (new Date(clientWorkLog.clientUpdatedAt) >= new Date(existing.data.updatedAt)) {
-      const workLog = await supabase
+      const workLog = await getSupabase()
         .from(tables.workLogs)
         .update({
           ...row,
@@ -459,6 +444,25 @@ async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkL
   }
 
   return { created, updated, conflicts }
+}
+
+async function findExistingByRemoteOrClientId(table: string, userId: string, remoteId: string | undefined, clientId: string) {
+  if (remoteId) {
+    const byRemoteId = await getSupabase()
+      .from(table)
+      .select("*")
+      .eq("userId", userId)
+      .eq("id", remoteId)
+      .maybeSingle()
+    if (byRemoteId.error || byRemoteId.data) return byRemoteId
+  }
+
+  return getSupabase()
+    .from(table)
+    .select("*")
+    .eq("userId", userId)
+    .eq("clientId", clientId)
+    .maybeSingle()
 }
 
 async function syncWorkLogsOptional(userId: string, deviceId: string | null, clientWorkLogs: z.infer<typeof SyncWorkLogSchema>[]) {
