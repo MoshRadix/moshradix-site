@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   const [noteResults, todoResults, workLogResults] = await Promise.all([
     syncNotes(user.userId, deviceId, clientNotes),
     syncTodos(user.userId, deviceId, clientTodos),
-    syncWorkLogs(user.userId, deviceId, clientWorkLogs),
+    syncWorkLogsOptional(user.userId, deviceId, clientWorkLogs),
   ])
 
   const sinceDate = since ? new Date(since).toISOString() : new Date(0).toISOString()
@@ -94,12 +94,7 @@ export async function POST(req: NextRequest) {
 
   const serverTodos = await attachSubtasks(serverTodosResult.data ?? [])
 
-  const serverWorkLogs = await supabase
-    .from(tables.workLogs)
-    .select("*")
-    .eq("userId", user.userId)
-    .gt("updatedAt", sinceDate)
-  throwIfSupabaseError(serverWorkLogs.error)
+  const serverWorkLogs = await getServerWorkLogsOptional(user.userId, sinceDate)
 
   return jsonResponse({
     syncedAt,
@@ -113,7 +108,8 @@ export async function POST(req: NextRequest) {
     },
     workLogs: {
       ...workLogResults,
-      serverChanges: serverWorkLogs.data ?? [],
+      serverChanges: serverWorkLogs.serverChanges,
+      error: workLogResults.error ?? serverWorkLogs.error,
     },
   })
 }
@@ -357,6 +353,45 @@ async function syncWorkLogs(userId: string, deviceId: string | null, clientWorkL
   }
 
   return { created, updated, conflicts }
+}
+
+async function syncWorkLogsOptional(userId: string, deviceId: string | null, clientWorkLogs: z.infer<typeof SyncWorkLogSchema>[]) {
+  try {
+    return {
+      ...(await syncWorkLogs(userId, deviceId, clientWorkLogs)),
+      error: undefined,
+    }
+  } catch (error) {
+    console.error("[Sync] Work log sync skipped:", error)
+    return {
+      created: [] as Array<{ id: string; clientId: string }>,
+      updated: [] as Array<{ id: string; clientId: string }>,
+      conflicts: [] as Array<{ clientId: string; serverWorkLog: unknown }>,
+      error: "Work log sync is temporarily unavailable.",
+    }
+  }
+}
+
+async function getServerWorkLogsOptional(userId: string, sinceDate: string) {
+  try {
+    const serverWorkLogs = await getSupabase()
+      .from(tables.workLogs)
+      .select("*")
+      .eq("userId", userId)
+      .gt("updatedAt", sinceDate)
+    throwIfSupabaseError(serverWorkLogs.error)
+
+    return {
+      serverChanges: serverWorkLogs.data ?? [],
+      error: undefined,
+    }
+  } catch (error) {
+    console.error("[Sync] Work log pull skipped:", error)
+    return {
+      serverChanges: [],
+      error: "Work log sync is temporarily unavailable.",
+    }
+  }
 }
 
 async function attachSubtasks<T extends { id: string }>(todos: T[]) {
