@@ -224,8 +224,16 @@ export async function POST(req: NextRequest) {
     }
 
     let deviceId: string | undefined
+    let newDeviceId = incomingDeviceId
 
     if (incomingDeviceId) {
+      const existingDevice = await supabase
+        .from(tables.devices)
+        .select("id,userId")
+        .eq("id", incomingDeviceId)
+        .maybeSingle()
+      throwIfSupabaseError(existingDevice.error)
+
       const updated = await supabase
         .from(tables.devices)
         .update({
@@ -242,13 +250,17 @@ export async function POST(req: NextRequest) {
       if (updated.data && updated.data.length > 0) {
         deviceId = incomingDeviceId
       }
+
+      if (!deviceId && existingDevice.data && existingDevice.data.userId !== user.id) {
+        newDeviceId = createId()
+      }
     }
 
     if (!deviceId && deviceName) {
       const createdDevice = await supabase
         .from(tables.devices)
         .insert({
-          id: incomingDeviceId ?? createId(),
+          id: newDeviceId ?? createId(),
           userId: user.id,
           name: deviceName,
           platform: platform ?? "web",
