@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next'
 import { blogPosts } from '@/lib/blog-data'
+import { projects } from '@/lib/project-data'
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://moshradix.dev'
@@ -52,5 +53,26 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: post.featured ? 0.9 : 0.7,
   }))
 
-  return [...staticRoutes, ...blogRoutes]
+  const projectRoutes = projects.flatMap((project) => [
+    {
+      url: `${baseUrl}/projects/${project.slug}`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: project.featured ? 0.8 : 0.6,
+    },
+    {
+      url: `${baseUrl}/projects/${project.slug}/terms`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.4,
+    },
+    {
+      url: `${baseUrl}/projects/${project.slug}/privacy`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.4,
+    },
+  ])
+
+  return [...staticRoutes, ...blogRoutes, ...projectRoutes]
 }

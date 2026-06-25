@@ -178,6 +178,22 @@ export default async function ProjectDetailPage({ params }: ProjectPageProps) {
                   <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                 </a>
               )}
+              <div className="grid grid-cols-2 gap-3">
+                <Link
+                  href={`/projects/${project.slug}/terms`}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 font-mono text-xs text-muted-foreground transition-all duration-300 hover:border-primary/50 hover:text-primary hover:bg-secondary/50"
+                >
+                  <Scale className="h-4 w-4" />
+                  terms
+                </Link>
+                <Link
+                  href={`/projects/${project.slug}/privacy`}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 font-mono text-xs text-muted-foreground transition-all duration-300 hover:border-primary/50 hover:text-primary hover:bg-secondary/50"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  privacy
+                </Link>
+              </div>
             </div>
           </aside>
         </header>
