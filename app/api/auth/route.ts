@@ -127,36 +127,27 @@ export async function POST(req: NextRequest) {
     throwIfSupabaseError(createdUser.error)
 
     const user = createdUser.data as Pick<SamugaaUser, "id" | "email" | "name">
-    const createdDevice = await supabase
-      .from(tables.devices)
-      .insert({
-        id: incomingDeviceId ?? createId(),
-        userId: user.id,
-        name: deviceName,
-        platform,
-        lastSeenAt: timestamp,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .select("id")
-      .single()
-    throwIfSupabaseError(createdDevice.error)
-    if (!createdDevice.data) {
-      throw new Error("Device creation did not return a row")
-    }
-
-    const verificationToken = createEmailVerificationToken()
-    const createdVerificationToken = await supabase.from(tables.emailVerificationTokens).insert({
-      id: createId(),
-      userId: user.id,
-      tokenHash: hashEmailVerificationToken(verificationToken),
-      expiresAt,
-      usedAt: null,
-      createdAt: timestamp,
-    })
-    throwIfSupabaseError(createdVerificationToken.error)
-
+    let registeredDeviceId: string
     try {
+      registeredDeviceId = await createAuthDevice({
+        userId: user.id,
+        incomingDeviceId,
+        deviceName,
+        platform,
+        timestamp,
+      })
+
+      const verificationToken = createEmailVerificationToken()
+      const createdVerificationToken = await supabase.from(tables.emailVerificationTokens).insert({
+        id: createId(),
+        userId: user.id,
+        tokenHash: hashEmailVerificationToken(verificationToken),
+        expiresAt,
+        usedAt: null,
+        createdAt: timestamp,
+      })
+      throwIfSupabaseError(createdVerificationToken.error)
+
       await sendVerificationEmail({
         verificationUrl: buildVerificationUrl(verificationToken),
         to: user.email,
@@ -174,7 +165,7 @@ export async function POST(req: NextRequest) {
         requiresVerification: true,
         message: VERIFICATION_MESSAGE,
         user,
-        deviceId: createdDevice.data.id,
+        deviceId: registeredDeviceId,
       },
       { status: 201 },
     )
@@ -586,4 +577,55 @@ function createEmailVerificationToken() {
 
 function hashEmailVerificationToken(token: string) {
   return createHash("sha256").update(token).digest("hex")
+}
+
+async function createAuthDevice({
+  userId,
+  incomingDeviceId,
+  deviceName,
+  platform,
+  timestamp,
+}: {
+  userId: string
+  incomingDeviceId?: string
+  deviceName: string
+  platform: z.infer<typeof PlatformSchema>
+  timestamp: string
+}) {
+  const supabase = getSupabase()
+  let deviceId = incomingDeviceId ?? createId()
+
+  if (incomingDeviceId) {
+    const existingDevice = await supabase
+      .from(tables.devices)
+      .select("id,userId")
+      .eq("id", incomingDeviceId)
+      .maybeSingle()
+    throwIfSupabaseError(existingDevice.error)
+
+    if (existingDevice.data && existingDevice.data.userId !== userId) {
+      deviceId = createId()
+    }
+  }
+
+  const createdDevice = await supabase
+    .from(tables.devices)
+    .insert({
+      id: deviceId,
+      userId,
+      name: deviceName,
+      platform,
+      lastSeenAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    })
+    .select("id")
+    .single()
+  throwIfSupabaseError(createdDevice.error)
+
+  if (!createdDevice.data) {
+    throw new Error("Device creation did not return a row")
+  }
+
+  return createdDevice.data.id
 }
