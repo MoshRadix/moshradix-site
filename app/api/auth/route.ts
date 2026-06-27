@@ -16,7 +16,17 @@ import {
 } from "@/lib/samugaa/verification-email"
 import { deleteExpiredUnverifiedUsers } from "@/lib/samugaa/email-verification-cleanup"
 
-const PlatformSchema = z.enum(["ios", "android", "electron", "web"])
+// Keep "electron" for clients released before desktop platforms were reported
+// explicitly as Windows, macOS, or Linux.
+const PlatformSchema = z.enum([
+  "android",
+  "ios",
+  "web",
+  "windows",
+  "macos",
+  "linux",
+  "electron",
+])
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
 const EMAIL_VERIFICATION_TTL_MS = 60 * 60 * 1000
 const PASSWORD_RESET_MESSAGE = "If an account exists for that email, a password reset link has been sent."

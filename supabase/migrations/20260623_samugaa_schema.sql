@@ -11,7 +11,9 @@ create table if not exists public."Device" (
   id text primary key,
   "userId" text not null references public."User"(id) on delete cascade,
   name text not null,
-  platform text not null check (platform in ('ios', 'android', 'electron', 'web')),
+  platform text not null check (
+    platform in ('android', 'ios', 'web', 'windows', 'macos', 'linux', 'electron')
+  ),
   "pushToken" text,
   "lastSeenAt" timestamptz not null,
   "createdAt" timestamptz not null,
