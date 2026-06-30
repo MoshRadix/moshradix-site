@@ -39,6 +39,7 @@ create table if not exists public."Todo" (
   id text primary key,
   "userId" text not null references public."User"(id) on delete cascade,
   text text not null,
+  notes text not null default '',
   done boolean not null default false,
   "doneAt" timestamptz,
   "dueDate" timestamptz,

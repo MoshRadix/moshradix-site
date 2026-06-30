@@ -24,6 +24,7 @@ const SyncTodoSchema = z.object({
   id: z.string().optional(),
   clientId: z.string(),
   text: z.string(),
+  notes: z.string().default(""),
   done: z.boolean().default(false),
   doneAt: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
@@ -335,6 +336,7 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
           id: todoId,
           userId,
           text: clientTodo.text,
+          notes: clientTodo.notes,
           done: clientTodo.done,
           doneAt: clientTodo.done ? (clientTodo.doneAt ?? timestamp) : null,
           dueDate: clientTodo.dueDate ?? null,
@@ -374,6 +376,7 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
         .from(tables.todos)
         .update({
           text: clientTodo.text,
+          notes: clientTodo.notes,
           done: clientTodo.done,
           doneAt: clientTodo.done ? (clientTodo.doneAt ?? timestamp) : null,
           dueDate: clientTodo.dueDate ?? null,

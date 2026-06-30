@@ -12,6 +12,7 @@ const SubtaskCreateSchema = z.object({
 
 const TodoCreateSchema = z.object({
   text: z.string().min(1),
+  notes: z.string().optional(),
   done: z.boolean().default(false),
   doneAt: z.string().nullable().optional(),
   dueDate: z.string().optional(),
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
   const supabase = getSupabase()
-  const { text, done, doneAt, dueDate, priority, tags, clientId, subtasks, deletedAt } = parsed.data
+  const { text, notes, done, doneAt, dueDate, priority, tags, clientId, subtasks, deletedAt } = parsed.data
   const deviceId = req.headers.get("X-Device-ID") ?? undefined
   const timestamp = nowIso()
 
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
         .from(tables.todos)
         .update({
           text,
+          notes: notes ?? "",
           done,
           doneAt: done ? (doneAt ?? timestamp) : null,
           dueDate: dueDate ?? null,
@@ -131,6 +133,7 @@ export async function POST(req: NextRequest) {
       id: todoId,
       userId: user.userId,
       text,
+      notes: notes ?? "",
       done,
       doneAt: done ? (doneAt ?? timestamp) : null,
       dueDate: dueDate ?? null,
