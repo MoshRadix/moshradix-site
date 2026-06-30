@@ -13,11 +13,13 @@ const SubtaskCreateSchema = z.object({
 const TodoCreateSchema = z.object({
   text: z.string().min(1),
   done: z.boolean().default(false),
+  doneAt: z.string().nullable().optional(),
   dueDate: z.string().optional(),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   tags: z.array(z.string()).default([]),
   clientId: z.string().optional(),
   subtasks: z.array(SubtaskCreateSchema).optional(),
+  deletedAt: z.string().nullable().optional(),
 })
 
 const TodoQuerySchema = z.object({
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return jsonResponse({ error: parsed.error.flatten() }, { status: 422 })
 
   const supabase = getSupabase()
-  const { text, done, dueDate, priority, tags, clientId, subtasks } = parsed.data
+  const { text, done, doneAt, dueDate, priority, tags, clientId, subtasks, deletedAt } = parsed.data
   const deviceId = req.headers.get("X-Device-ID") ?? undefined
   const timestamp = nowIso()
 
@@ -92,10 +94,13 @@ export async function POST(req: NextRequest) {
         .update({
           text,
           done,
+          doneAt: done ? (doneAt ?? timestamp) : null,
           dueDate: dueDate ?? null,
           priority,
           tags,
           deviceId: deviceId ?? null,
+          isDeleted: deletedAt ? true : false,
+          deletedAt: deletedAt ?? null,
           updatedAt: timestamp,
           syncVersion: (existing.data.syncVersion ?? 1) + 1,
         })
@@ -115,13 +120,15 @@ export async function POST(req: NextRequest) {
       userId: user.userId,
       text,
       done,
+      doneAt: done ? (doneAt ?? timestamp) : null,
       dueDate: dueDate ?? null,
       priority,
       tags,
       clientId: clientId ?? null,
       deviceId: deviceId ?? null,
       syncVersion: 1,
-      isDeleted: false,
+      isDeleted: deletedAt ? true : false,
+      deletedAt: deletedAt ?? null,
       createdAt: timestamp,
       updatedAt: timestamp,
     })
