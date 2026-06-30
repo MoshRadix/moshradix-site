@@ -108,6 +108,18 @@ export async function POST(req: NextRequest) {
         .select("*")
         .single()
       throwIfSupabaseError(todo.error)
+      if (deletedAt) {
+        const logDeleteResult = await supabase
+          .from(tables.workLogs)
+          .update({
+            isDeleted: true,
+            deletedAt: timestamp,
+            updatedAt: timestamp,
+          })
+          .eq("userId", user.userId)
+          .or(`linkedTodoId.eq.${existing.data.id},linkedTodoId.eq.${clientId}`)
+        throwIfSupabaseError(logDeleteResult.error)
+      }
       return jsonResponse({ todo: { ...todo.data, subtasks: [] } })
     }
   }
@@ -137,6 +149,18 @@ export async function POST(req: NextRequest) {
   throwIfSupabaseError(todo.error)
 
   const createdSubtasks = await replaceSubtasks(todoId, subtasks ?? [])
+  if (deletedAt) {
+    const logDeleteResult = await supabase
+      .from(tables.workLogs)
+      .update({
+        isDeleted: true,
+        deletedAt: timestamp,
+        updatedAt: timestamp,
+      })
+      .eq("userId", user.userId)
+      .or(`linkedTodoId.eq.${todoId},linkedTodoId.eq.${clientId}`)
+    throwIfSupabaseError(logDeleteResult.error)
+  }
   await logSync(user.userId, deviceId, "todo", todo.data.id, "create")
   return jsonResponse({ todo: { ...todo.data, subtasks: createdSubtasks } }, { status: 201 })
 }

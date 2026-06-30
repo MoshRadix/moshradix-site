@@ -353,6 +353,18 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
       throwIfSupabaseError(todo.error)
       if (!todo.data) throw new Error("Todo creation did not return a row")
       await replaceSubtasks(todoId, clientTodo.subtasks)
+      if (clientTodo.isDeleted) {
+        const logDeleteResult = await getSupabase()
+          .from(tables.workLogs)
+          .update({
+            isDeleted: true,
+            deletedAt: timestamp,
+            updatedAt: timestamp,
+          })
+          .eq("userId", userId)
+          .or(`linkedTodoId.eq.${todoId},linkedTodoId.eq.${clientTodo.clientId}`)
+        throwIfSupabaseError(logDeleteResult.error)
+      }
       created.push(todo.data.id)
       continue
     }
@@ -379,6 +391,18 @@ async function syncTodos(userId: string, deviceId: string | null, clientTodos: z
       throwIfSupabaseError(todo.error)
       if (!todo.data) throw new Error("Todo update did not return a row")
       await replaceSubtasks(existing.data.id, clientTodo.subtasks)
+      if (clientTodo.isDeleted) {
+        const logDeleteResult = await getSupabase()
+          .from(tables.workLogs)
+          .update({
+            isDeleted: true,
+            deletedAt: timestamp,
+            updatedAt: timestamp,
+          })
+          .eq("userId", userId)
+          .or(`linkedTodoId.eq.${existing.data.id},linkedTodoId.eq.${clientTodo.clientId}`)
+        throwIfSupabaseError(logDeleteResult.error)
+      }
       updated.push(todo.data.id)
     } else {
       conflicts.push({ clientId: clientTodo.clientId, serverTodo: existing.data })
